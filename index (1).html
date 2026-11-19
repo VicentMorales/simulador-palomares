@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simulador: ¿dónde está la bomba?</title>
+<style>
+:root{--bg:#F7F5F0;--surface:#FFFFFF;--text:#1F2A44;--muted:#5A6275;--accent:#1F2A44;--hot:#D9691A;--line:#D8D4CA;
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#141A2B;--surface:#1D2540;--text:#EEF0F6;--muted:#A3ABC2;--accent:#8CA6E8;--hot:#F29A54;--line:#33405F;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141A2B;--surface:#1D2540;--text:#EEF0F6;--muted:#A3ABC2;--accent:#8CA6E8;--hot:#F29A54;--line:#33405F;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Calibri,"Segoe UI",system-ui,sans-serif;line-height:1.45}
+main{max-width:760px;margin:0 auto;padding:20px 16px 32px}
+h1{font-family:Georgia,serif;font-size:1.7rem;margin:0 0 6px}
+.sub{color:var(--muted);margin:0 0 18px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:16px}
+label{font-weight:700}
+input[type=range]{width:100%;accent-color:var(--hot);margin-top:8px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+.card{background:var(--surface);border:2px solid var(--line);border-radius:12px;padding:12px 8px 10px;text-align:center;cursor:pointer;color:var(--text);font:inherit}
+.card:hover{border-color:var(--accent)}
+.card.last{border-color:var(--hot);border-width:3px}
+.card .l{font-weight:700;font-size:1.1rem;text-align:left}
+.card .v{font-size:1.5rem;font-weight:700;margin:6px 0 8px}
+.bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);transition:width .35s}
+.tag{font-size:.75rem;color:var(--hot);min-height:1em;margin-top:6px}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+button.b{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer}
+button.b:hover{border-color:var(--accent)}
+.small{color:var(--muted);font-size:.9rem}
+ol{margin:6px 0 0;padding-left:20px}
+@media (max-width:520px){.grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<main>
+  <h1>¿Dónde está la bomba?</h1>
+  <p class="sub">Simulador del método de Palomares. Pulsa un sector para buscar en él: si no aparece la bomba, las probabilidades se actualizan con el teorema de Bayes. Ejemplo ilustrativo.</p>
+
+  <div class="panel">
+    <label for="p">Calidad de la búsqueda: p = <span id="pv">0,80</span></label>
+    <input id="p" type="range" min="0" max="100" value="80" aria-label="Calidad de la búsqueda p">
+    <div class="small">p es la probabilidad de encontrar la bomba cuando buscas en el sector donde está.</div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="btns">
+    <button class="b" id="undo">Deshacer</button>
+    <button class="b" id="reset">Reiniciar</button>
+  </div>
+
+  <div class="panel" id="expl"><span class="small">Elige un sector para buscar en él.</span></div>
+  <div class="panel"><strong>Búsquedas realizadas</strong><ol id="hist"><li class="small" style="list-style:none;margin-left:-20px">Ninguna todavía.</li></ol></div>
+  <p class="small" id="suma"></p>
+</main>
+<script>
+var NOMBRES = ["A","B","C","D"], BASE = [0.4,0.3,0.2,0.1];
+var pi = BASE.slice(), pila = [], ultimo = -1, registro = [];
+var $ = function(id){return document.getElementById(id)};
+function n(x,d){return x.toLocaleString("es-ES",{minimumFractionDigits:d,maximumFractionDigits:d})}
+function pct(x){return n(x*100,1)+" %"}
+function valorP(){return $("p").value/100}
+
+function actualizar(v,p,i){
+  var d = 1 - p*v[i];
+  if (d < 1e-12) return null;
+  return v.map(function(x,j){return j===i ? x*(1-p)/d : x/d});
+}
+function dibujar(){
+  var g = $("grid"); g.innerHTML = "";
+  pi.forEach(function(v,k){
+    var b = document.createElement("button");
+    b.className = "card" + (k===ultimo ? " last" : "");
+    b.setAttribute("aria-label","Buscar en el sector "+NOMBRES[k]);
+    b.innerHTML = '<div class="l">'+NOMBRES[k]+'</div><div class="v">'+pct(v)+'</div><div class="bar"><i style="width:'+(v*100)+'%"></i></div><div class="tag">'+(k===ultimo?"último buscado":"")+'</div>';
+    b.onclick = function(){buscar(k)};
+    g.appendChild(b);
+  });
+  var s = pi.reduce(function(a,b){return a+b},0);
+  $("suma").textContent = "Suma de las probabilidades: " + pct(s);
+  var h = $("hist");
+  h.innerHTML = registro.length ? "" : '<li class="small" style="list-style:none;margin-left:-20px">Ninguna todavía.</li>';
+  registro.forEach(function(r){var li=document.createElement("li");li.textContent="Sector "+r.s+", p = "+n(r.p,2);h.appendChild(li)});
+}
+function buscar(i){
+  var p = valorP(), antes = pi.slice(), nuevo = actualizar(pi,p,i);
+  if (!nuevo){
+    $("expl").innerHTML = "<strong>Imposible:</strong> con esos datos la búsqueda en "+NOMBRES[i]+" habría encontrado la bomba seguro, así que este resultado no puede darse.";
+    return;
+  }
+  pila.push({pi:antes,ultimo:ultimo,registro:registro.slice()});
+  var d = 1 - p*antes[i];
+  pi = nuevo; ultimo = i; registro.push({s:NOMBRES[i],p:p});
+  $("expl").innerHTML =
+    "Buscas en <strong>"+NOMBRES[i]+"</strong> con p = "+n(p,2)+" y no aparece nada.<br>"+
+    "Denominador: 1 − p·πᵢ = 1 − "+n(p,2)+" · "+n(antes[i],3)+" = <strong>"+n(d,3)+"</strong><br>"+
+    "Sector buscado: πᵢ(1 − p) / "+n(d,3)+" = "+n(nuevo[i],3)+"<br>"+
+    "Los demás: πⱼ / "+n(d,3)+" (todos suben en la misma proporción)";
+  dibujar();
+}
+$("p").oninput = function(){$("pv").textContent = n(valorP(),2)};
+$("undo").onclick = function(){
+  var e = pila.pop(); if(!e) return;
+  pi = e.pi; ultimo = e.ultimo; registro = e.registro;
+  $("expl").innerHTML = '<span class="small">Búsqueda deshecha.</span>'; dibujar();
+};
+$("reset").onclick = function(){
+  pi = BASE.slice(); pila = []; ultimo = -1; registro = [];
+  $("expl").innerHTML = '<span class="small">Elige un sector para buscar en él.</span>'; dibujar();
+};
+dibujar();
+</script>
+</body>
+</html>
